@@ -89,13 +89,21 @@ tr.marked-delete td.name{text-decoration:line-through}
 .del-btn{background:none;border:1px solid var(--border);border-radius:4px;cursor:pointer;font-size:.72rem;padding:.2rem .45rem;color:var(--muted);transition:all .12s}
 .del-btn:hover{border-color:var(--red);color:var(--red)}
 .del-btn.active{background:var(--red-bg);border-color:var(--red);color:var(--red);font-weight:600}
-.save-bar{position:fixed;top:.5rem;right:1rem;z-index:100;display:flex;gap:.4rem;align-items:center}
+.save-bar{position:fixed;top:.5rem;right:1rem;z-index:100;display:flex;gap:.4rem;align-items:center;flex-wrap:wrap;justify-content:flex-end;max-width:calc(100% - var(--sidebar-w) - 2rem)}
 .save-bar .save-btn{background:var(--red);color:#fff;border:none;border-radius:6px;padding:.5rem 1rem;font-size:.78rem;font-weight:600;cursor:pointer;font-family:var(--sans);box-shadow:0 2px 8px rgba(220,38,38,.25)}
 .save-bar .save-btn:hover{background:#b91c1c}
+.save-bar .save-btn.clean{background:var(--green);box-shadow:0 2px 8px rgba(22,163,74,.25)}
+.save-bar .save-btn.clean:hover{background:#15803d}
 .save-bar .copy-btn{background:var(--s1);color:var(--text);border:1px solid var(--border);border-radius:6px;padding:.5rem .8rem;font-size:.78rem;cursor:pointer;font-family:var(--sans)}
 .save-bar .copy-btn:hover{border-color:var(--blue);color:var(--blue)}
 .save-bar .counter{font-family:var(--mono);font-size:.72rem;color:var(--red);font-weight:600}
-td.id-col{font-family:var(--mono);font-size:.6rem;color:var(--muted);max-width:180px}
+td.id-col{font-family:var(--mono);font-size:.6rem;color:var(--muted);white-space:normal;word-break:break-all;min-width:220px;max-width:350px}
+
+/* ── Select checkboxes ── */
+td.sel-col,th.sel-col{width:28px;min-width:28px;max-width:28px;text-align:center;padding:.45rem .3rem}
+td.sel-col input,th.sel-col input{cursor:pointer;width:14px;height:14px;accent-color:var(--blue)}
+tr.row-selected{background:var(--blue-bg) !important}
+tr.marked-delete.row-selected{background:var(--red-bg) !important}
 
 /* ── Tenant grid ── */
 .tenant-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(240px,1fr));gap:.6rem}
@@ -120,8 +128,11 @@ td.id-col{font-family:var(--mono);font-size:.6rem;color:var(--muted);max-width:1
 </head><body>
 
 <div class="save-bar" id="save-bar" style="display:none">
-  <span class="counter">0 marked for deletion</span>
-  <button class="save-btn" onclick="saveSelections()">Save Selections</button>
+  <span class="counter" id="bar-counter">0 marked for deletion</span>
+  <span class="counter" id="bar-selected" style="color:var(--blue)"></span>
+  <button class="save-btn" onclick="saveSelections()">Save &amp; Deploy</button>
+  <button class="copy-btn" onclick="copySelectedIds()">Copy Selected IDs</button>
+  <button class="copy-btn" onclick="downloadSelectedIds()">Download IDs</button>
   <button class="copy-btn" onclick="copyDeletionList()">Copy JSON</button>
   <button class="copy-btn" onclick="copyShareLink()">Copy Link</button>
 </div>
@@ -139,6 +150,10 @@ var D = null;
 var page = 'dashboard';
 var tenant = ''; // workspace slug filter
 var deleteSet = {}; // {audienceId: {id, name, workspace}}
+var selectSet = {}; // {audienceId: true} — row selection for copy/download
+var serverDeleteSet = '{}'; // JSON snapshot of last saved state
+var dirty = false; // true if local deleteSet differs from server
+var currentRows = []; // currently displayed audience rows for select-all
 
 // Load delete selections from server file, URL hash, or localStorage
 function loadDeleteState(){
@@ -152,17 +167,26 @@ function loadDeleteState(){
   // Also load persisted server state
   fetch('data/deletions.json').then(function(r){if(r.ok)return r.json();throw 0}).then(function(data){
     if(data&&data.marked_for_deletion){
-      data.marked_for_deletion.forEach(function(a){if(a.id&&!deleteSet[a.id])deleteSet[a.id]=a});
+      var serverSet={};
+      data.marked_for_deletion.forEach(function(a){if(a.id){serverSet[a.id]=a;if(!deleteSet[a.id])deleteSet[a.id]=a}});
+      serverDeleteSet=JSON.stringify(serverSet);
+      checkDirty();
       updateSaveBar();
       if(page==='audiences')render();
     }
   }).catch(function(){});
+}
+function checkDirty(){
+  var localKeys=Object.keys(deleteSet).sort().join(',');
+  var serverKeys=Object.keys(JSON.parse(serverDeleteSet)).sort().join(',');
+  dirty=(localKeys!==serverKeys);
 }
 function saveDeleteState(){
   try{localStorage.setItem('lm-delete-set',JSON.stringify(deleteSet))}catch(e){}
   var ids=Object.keys(deleteSet);
   if(ids.length)location.hash='delete='+encodeURIComponent(ids.join(','));
   else if(location.hash)history.replaceState(null,'',location.pathname+location.search);
+  checkDirty();
   updateSaveBar();
 }
 function toggleDelete(a){
@@ -170,14 +194,52 @@ function toggleDelete(a){
   else deleteSet[a.id]={id:a.id,name:a.name,workspace:a.workspace};
   saveDeleteState();
 }
+function toggleSelect(id){
+  if(selectSet[id])delete selectSet[id];
+  else selectSet[id]=true;
+  updateSaveBar();
+}
 function getDeleteCount(){return Object.keys(deleteSet).length}
+function getSelectCount(){return Object.keys(selectSet).length}
+function selectAll(){
+  currentRows.forEach(function(a){selectSet[a.id]=true});
+  if(page==='audiences')render();
+  updateSaveBar();
+}
+function selectNone(){
+  selectSet={};
+  if(page==='audiences')render();
+  updateSaveBar();
+}
+function selectMarked(){
+  selectSet={};
+  Object.keys(deleteSet).forEach(function(id){selectSet[id]=true});
+  if(page==='audiences')render();
+  updateSaveBar();
+}
+function getSelectedIds(){
+  return Object.keys(selectSet);
+}
 function updateSaveBar(){
   var bar=document.getElementById('save-bar');
   if(!bar)return;
-  var cnt=getDeleteCount();
-  bar.style.display=cnt>0?'flex':'none';
-  var counter=bar.querySelector('.counter');
-  if(counter)counter.textContent=cnt+' marked for deletion';
+  var delCnt=getDeleteCount();
+  var selCnt=getSelectCount();
+  // Show bar if anything is marked, selected, or there are unsaved changes
+  bar.style.display=(delCnt>0||selCnt>0||dirty)?'flex':'none';
+  var counter=document.getElementById('bar-counter');
+  if(counter){
+    counter.textContent=delCnt+' marked for deletion';
+    if(dirty)counter.textContent+=' (unsaved)';
+  }
+  var selSpan=document.getElementById('bar-selected');
+  if(selSpan)selSpan.textContent=selCnt>0?selCnt+' selected':'';
+  // Style save button based on dirty state
+  var saveBtn=bar.querySelector('.save-btn');
+  if(saveBtn){
+    if(dirty){saveBtn.classList.remove('clean');saveBtn.textContent='Save & Deploy'}
+    else{saveBtn.classList.add('clean');saveBtn.textContent='Saved'}
+  }
 }
 loadDeleteState();
 
@@ -372,11 +434,24 @@ function renderAudiences(c){
   var orderSel=ce('select','');
   [['desc','DESC'],['asc','ASC']].forEach(function(o){var op=document.createElement('option');op.value=o[0];op.textContent=o[1];orderSel.appendChild(op)});
   controls.appendChild(orderSel);
+
+  // Select controls
+  var selGroup=ce('div','');selGroup.style.cssText='display:flex;gap:.3rem;margin-left:.5rem';
+  var btnAll=ce('button','copy-btn');btnAll.textContent='Select All';btnAll.style.cssText='font-size:.68rem;padding:.25rem .5rem';btnAll.onclick=selectAll;selGroup.appendChild(btnAll);
+  var btnNone=ce('button','copy-btn');btnNone.textContent='Select None';btnNone.style.cssText='font-size:.68rem;padding:.25rem .5rem';btnNone.onclick=selectNone;selGroup.appendChild(btnNone);
+  var btnMarked=ce('button','copy-btn');btnMarked.textContent='Select Marked';btnMarked.style.cssText='font-size:.68rem;padding:.25rem .5rem;color:var(--red)';btnMarked.onclick=selectMarked;selGroup.appendChild(btnMarked);
+  controls.appendChild(selGroup);
+
   controls.appendChild(ce('div','cnt',''));
   c.appendChild(controls);
 
   var wrap=ce('div','tbl-wrap');
-  var tbl=ce('table','');var thead=ce('thead','');var hr=ce('tr','');
+  var tbl=ce('table','');tbl.style.tableLayout='auto';var thead=ce('thead','');var hr=ce('tr','');
+  // Select-all checkbox header
+  var thSel=ce('th','sel-col');
+  var selAllCb=document.createElement('input');selAllCb.type='checkbox';selAllCb.title='Select all visible';
+  selAllCb.onchange=function(){if(selAllCb.checked)selectAll();else selectNone()};
+  thSel.appendChild(selAllCb);hr.appendChild(thSel);
   ['ID','Name','Tenant','Status','Size','Refreshes','Created','Last Refreshed','Delete'].forEach(function(h){hr.appendChild(ce('th','',h))});
   thead.appendChild(hr);tbl.appendChild(thead);
   var tbody=ce('tbody','');tbl.appendChild(tbody);wrap.appendChild(tbl);c.appendChild(wrap);
@@ -390,11 +465,25 @@ function renderAudiences(c){
       if(q)rows=rows.filter(function(a){return a.name.toLowerCase().includes(q)});
       var col=sortSel.value;var ord=orderSel.value;
       rows.sort(function(a,b){var av=a[col]||'',bv=b[col]||'';if(typeof av==='number'||col==='audience_size')return ord==='desc'?(bv||0)-(av||0):(av||0)-(bv||0);return ord==='desc'?String(bv).localeCompare(String(av)):String(av).localeCompare(String(bv))});
+      currentRows=rows;
 
       while(tbody.firstChild)tbody.removeChild(tbody.firstChild);
       rows.forEach(function(a){
         var tr=ce('tr','');
-        if(deleteSet[a.id])tr.className='marked-delete';
+        var cls=[];
+        if(deleteSet[a.id])cls.push('marked-delete');
+        if(selectSet[a.id])cls.push('row-selected');
+        tr.className=cls.join(' ');
+
+        // Select checkbox
+        var tdSel=ce('td','sel-col');
+        var cb=document.createElement('input');cb.type='checkbox';cb.checked=!!selectSet[a.id];
+        cb.onchange=(function(aud,row,checkbox){return function(){
+          toggleSelect(aud.id);
+          if(selectSet[aud.id])row.classList.add('row-selected');else row.classList.remove('row-selected');
+        }})(a,tr,cb);
+        tdSel.appendChild(cb);tr.appendChild(tdSel);
+
         tr.appendChild(ce('td','id-col',a.id||'-'));
         tr.appendChild(ce('td','name',a.name));
         tr.appendChild(ce('td','mono',a.workspace));
@@ -406,14 +495,18 @@ function renderAudiences(c){
         tr.appendChild(ce('td','mono',a.created?a.created.substring(0,10):''));
         tr.appendChild(ce('td','mono',a.last_refreshed||'-'));
         var tdDel=ce('td','');
-        var btn=ce('button','del-btn'+(deleteSet[a.id]?' active':''),deleteSet[a.id]?'\u2715 Remove':'\u2715');
-        btn.onclick=(function(aud,row,b){return function(){toggleDelete(aud);row.className=deleteSet[aud.id]?'marked-delete':'';b.className='del-btn'+(deleteSet[aud.id]?' active':'');b.textContent=deleteSet[aud.id]?'\u2715 Remove':'\u2715'}})(a,tr,btn);
+        var btn=ce('button','del-btn'+(deleteSet[a.id]?' active':''),deleteSet[a.id]?'\u2715 Undo':'\u2715');
+        btn.onclick=(function(aud,row,b){return function(){
+          toggleDelete(aud);
+          if(deleteSet[aud.id]){row.classList.add('marked-delete');b.className='del-btn active';b.textContent='\u2715 Undo'}
+          else{row.classList.remove('marked-delete');b.className='del-btn';b.textContent='\u2715'}
+        }})(a,tr,btn);
         tdDel.appendChild(btn);tr.appendChild(tdDel);
         tbody.appendChild(tr);
       });
       // Backfill names in deleteSet from loaded data
       rows.forEach(function(a){if(deleteSet[a.id]){deleteSet[a.id].name=a.name;deleteSet[a.id].workspace=a.workspace}});
-      var cnt=c.querySelector('.cnt');if(cnt)cnt.textContent='Showing '+rows.length+(getDeleteCount()?' \u00B7 '+getDeleteCount()+' marked':'');
+      var cnt=c.querySelector('.cnt');if(cnt)cnt.textContent='Showing '+rows.length+(getDeleteCount()?' \u00B7 '+getDeleteCount()+' marked':'')+(getSelectCount()?' \u00B7 '+getSelectCount()+' selected':'');
       updateSaveBar();
     });
   }
@@ -482,6 +575,11 @@ function saveSelections(){
     body:JSON.stringify(payload)
   }).then(function(r){return r.json()}).then(function(data){
     if(data.success){
+      // Update server snapshot so dirty flag clears
+      var snap={};list.forEach(function(a){snap[a.id]=a});
+      serverDeleteSet=JSON.stringify(snap);
+      dirty=false;
+      updateSaveBar();
       alert('Saved '+list.length+' audience'+(list.length===1?'':'s')+' marked for deletion.\nState committed to repo and redeploy triggered.\n\nThe selections will persist for anyone who visits the site.');
     } else {
       alert('Save failed: '+(data.error||'Unknown error')+'\n\nSelections are still saved locally.');
@@ -491,6 +589,21 @@ function saveSelections(){
   }).finally(function(){
     if(btn){btn.textContent='Save Selections';btn.disabled=false}
   });
+}
+function copySelectedIds(){
+  var ids=getSelectedIds();
+  if(!ids.length){alert('No audiences selected. Use checkboxes or "Select All" / "Select Marked" first.');return}
+  var csv=ids.join(',');
+  navigator.clipboard.writeText(csv).then(function(){alert('Copied '+ids.length+' audience IDs to clipboard (comma-separated).')});
+}
+function downloadSelectedIds(){
+  var ids=getSelectedIds();
+  if(!ids.length){alert('No audiences selected. Use checkboxes or "Select All" / "Select Marked" first.');return}
+  var csv=ids.join(',');
+  var blob=new Blob([csv],{type:'text/plain'});
+  var url=URL.createObjectURL(blob);
+  var a=document.createElement('a');a.href=url;a.download='selected-audience-ids.txt';
+  document.body.appendChild(a);a.click();document.body.removeChild(a);URL.revokeObjectURL(url);
 }
 function copyDeletionList(){
   var list=Object.values(deleteSet);
