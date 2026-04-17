@@ -238,9 +238,10 @@ function updateSaveBar(){
   // Style save button based on dirty state
   var saveBtn=bar.querySelector('.save-btn');
   if(saveBtn){
-    if(dirty){saveBtn.classList.remove('clean');saveBtn.textContent='Save & Deploy';saveBtn.disabled=false}
-    else if(delCnt>0){saveBtn.classList.add('clean');saveBtn.textContent='Saved';saveBtn.disabled=false}
-    else{saveBtn.classList.remove('clean');saveBtn.textContent='Save & Deploy';saveBtn.disabled=true}
+    saveBtn.disabled=false;
+    if(dirty){saveBtn.classList.remove('clean');saveBtn.textContent='Save & Deploy'}
+    else if(delCnt>0){saveBtn.classList.add('clean');saveBtn.textContent='Saved'}
+    else{saveBtn.classList.remove('clean');saveBtn.textContent='Save & Deploy'}
   }
 }
 loadDeleteState();
