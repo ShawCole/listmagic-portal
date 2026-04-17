@@ -1,5 +1,16 @@
 {
-  "marked_for_deletion": [],
-  "count": 0,
-  "saved_at": "2026-04-17T17:46:01.646Z"
+  "marked_for_deletion": [
+    {
+      "id": "89b6f1bd-2553-4695-9bbd-13815177ab91",
+      "name": "ACG Baseball Softball Specific KW National",
+      "workspace": "simple-audience"
+    },
+    {
+      "id": "d3f32792-a99b-4a27-809c-ddc679b25eca",
+      "name": "ACG Golf Specific KW National",
+      "workspace": "simple-audience"
+    }
+  ],
+  "count": 2,
+  "saved_at": "2026-04-17T17:57:18.859Z"
 }
