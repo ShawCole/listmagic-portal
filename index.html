@@ -140,7 +140,7 @@ var page = 'dashboard';
 var tenant = ''; // workspace slug filter
 var deleteSet = {}; // {audienceId: {id, name, workspace}}
 
-// Load delete selections from URL hash or localStorage
+// Load delete selections from server file, URL hash, or localStorage
 function loadDeleteState(){
   var h=location.hash;
   if(h&&h.indexOf('#delete=')===0){
@@ -149,6 +149,14 @@ function loadDeleteState(){
   } else {
     try{var s=localStorage.getItem('lm-delete-set');if(s)deleteSet=JSON.parse(s)}catch(e){}
   }
+  // Also load persisted server state
+  fetch('data/deletions.json').then(function(r){if(r.ok)return r.json();throw 0}).then(function(data){
+    if(data&&data.marked_for_deletion){
+      data.marked_for_deletion.forEach(function(a){if(a.id&&!deleteSet[a.id])deleteSet[a.id]=a});
+      updateSaveBar();
+      if(page==='audiences')render();
+    }
+  }).catch(function(){});
 }
 function saveDeleteState(){
   try{localStorage.setItem('lm-delete-set',JSON.stringify(deleteSet))}catch(e){}
@@ -465,8 +473,24 @@ function renderPixels(c){
 // ── Save/Share deletion selections ──
 function saveSelections(){
   saveDeleteState();
-  var cnt=getDeleteCount();
-  alert('Saved '+cnt+' audience'+(cnt===1?'':'s')+' marked for deletion.\n\nUse "Copy Link" to share or "Copy JSON" for the raw list.');
+  var list=Object.values(deleteSet);
+  var payload={marked_for_deletion:list,count:list.length,saved_at:new Date().toISOString()};
+  var btn=document.querySelector('.save-btn');
+  if(btn){btn.textContent='Saving...';btn.disabled=true}
+  fetch('/.netlify/functions/save-deletions',{
+    method:'POST',headers:{'Content-Type':'application/json'},
+    body:JSON.stringify(payload)
+  }).then(function(r){return r.json()}).then(function(data){
+    if(data.success){
+      alert('Saved '+list.length+' audience'+(list.length===1?'':'s')+' marked for deletion.\nState committed to repo and redeploy triggered.\n\nThe selections will persist for anyone who visits the site.');
+    } else {
+      alert('Save failed: '+(data.error||'Unknown error')+'\n\nSelections are still saved locally.');
+    }
+  }).catch(function(e){
+    alert('Could not reach save endpoint.\nSelections saved locally only.\n\n'+e);
+  }).finally(function(){
+    if(btn){btn.textContent='Save Selections';btn.disabled=false}
+  });
 }
 function copyDeletionList(){
   var list=Object.values(deleteSet);
