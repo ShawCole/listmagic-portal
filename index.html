@@ -83,6 +83,20 @@ td.name{font-weight:500}
 .pill.err{background:var(--red-bg);color:var(--red)}
 .pill.unk{background:var(--s2);color:var(--muted)}
 
+/* ── Delete UI ── */
+tr.marked-delete{background:var(--red-bg) !important;opacity:.7}
+tr.marked-delete td.name{text-decoration:line-through}
+.del-btn{background:none;border:1px solid var(--border);border-radius:4px;cursor:pointer;font-size:.72rem;padding:.2rem .45rem;color:var(--muted);transition:all .12s}
+.del-btn:hover{border-color:var(--red);color:var(--red)}
+.del-btn.active{background:var(--red-bg);border-color:var(--red);color:var(--red);font-weight:600}
+.save-bar{position:fixed;top:.5rem;right:1rem;z-index:100;display:flex;gap:.4rem;align-items:center}
+.save-bar .save-btn{background:var(--red);color:#fff;border:none;border-radius:6px;padding:.5rem 1rem;font-size:.78rem;font-weight:600;cursor:pointer;font-family:var(--sans);box-shadow:0 2px 8px rgba(220,38,38,.25)}
+.save-bar .save-btn:hover{background:#b91c1c}
+.save-bar .copy-btn{background:var(--s1);color:var(--text);border:1px solid var(--border);border-radius:6px;padding:.5rem .8rem;font-size:.78rem;cursor:pointer;font-family:var(--sans)}
+.save-bar .copy-btn:hover{border-color:var(--blue);color:var(--blue)}
+.save-bar .counter{font-family:var(--mono);font-size:.72rem;color:var(--red);font-weight:600}
+td.id-col{font-family:var(--mono);font-size:.6rem;color:var(--muted);max-width:180px}
+
 /* ── Tenant grid ── */
 .tenant-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(240px,1fr));gap:.6rem}
 .tc{background:var(--s1);border:1px solid var(--border);border-radius:8px;padding:.9rem;cursor:pointer;transition:all .12s}
@@ -105,6 +119,12 @@ td.name{font-weight:500}
 </style>
 </head><body>
 
+<div class="save-bar" id="save-bar" style="display:none">
+  <span class="counter">0 marked for deletion</span>
+  <button class="save-btn" onclick="saveSelections()">Save Selections</button>
+  <button class="copy-btn" onclick="copyDeletionList()">Copy JSON</button>
+  <button class="copy-btn" onclick="copyShareLink()">Copy Link</button>
+</div>
 <div class="sidebar" id="sidebar"></div>
 <div class="main">
   <div class="topbar">
@@ -118,6 +138,40 @@ td.name{font-weight:500}
 var D = null;
 var page = 'dashboard';
 var tenant = ''; // workspace slug filter
+var deleteSet = {}; // {audienceId: {id, name, workspace}}
+
+// Load delete selections from URL hash or localStorage
+function loadDeleteState(){
+  var h=location.hash;
+  if(h&&h.indexOf('#delete=')===0){
+    var ids=decodeURIComponent(h.substring(8)).split(',');
+    ids.forEach(function(id){if(id)deleteSet[id]={id:id,name:'',workspace:''}});
+  } else {
+    try{var s=localStorage.getItem('lm-delete-set');if(s)deleteSet=JSON.parse(s)}catch(e){}
+  }
+}
+function saveDeleteState(){
+  try{localStorage.setItem('lm-delete-set',JSON.stringify(deleteSet))}catch(e){}
+  var ids=Object.keys(deleteSet);
+  if(ids.length)location.hash='delete='+encodeURIComponent(ids.join(','));
+  else if(location.hash)history.replaceState(null,'',location.pathname+location.search);
+  updateSaveBar();
+}
+function toggleDelete(a){
+  if(deleteSet[a.id])delete deleteSet[a.id];
+  else deleteSet[a.id]={id:a.id,name:a.name,workspace:a.workspace};
+  saveDeleteState();
+}
+function getDeleteCount(){return Object.keys(deleteSet).length}
+function updateSaveBar(){
+  var bar=document.getElementById('save-bar');
+  if(!bar)return;
+  var cnt=getDeleteCount();
+  bar.style.display=cnt>0?'flex':'none';
+  var counter=bar.querySelector('.counter');
+  if(counter)counter.textContent=cnt+' marked for deletion';
+}
+loadDeleteState();
 
 function $(id){return document.getElementById(id)}
 function ce(t,c,txt){var e=document.createElement(t);if(c)e.className=c;if(txt!==undefined)e.textContent=String(txt);return e}
@@ -315,7 +369,7 @@ function renderAudiences(c){
 
   var wrap=ce('div','tbl-wrap');
   var tbl=ce('table','');var thead=ce('thead','');var hr=ce('tr','');
-  ['Name','Tenant','Status','Size','Refreshes','Created','Last Refreshed'].forEach(function(h){hr.appendChild(ce('th','',h))});
+  ['ID','Name','Tenant','Status','Size','Refreshes','Created','Last Refreshed','Delete'].forEach(function(h){hr.appendChild(ce('th','',h))});
   thead.appendChild(hr);tbl.appendChild(thead);
   var tbody=ce('tbody','');tbl.appendChild(tbody);wrap.appendChild(tbl);c.appendChild(wrap);
 
@@ -332,6 +386,8 @@ function renderAudiences(c){
       while(tbody.firstChild)tbody.removeChild(tbody.firstChild);
       rows.forEach(function(a){
         var tr=ce('tr','');
+        if(deleteSet[a.id])tr.className='marked-delete';
+        tr.appendChild(ce('td','id-col',a.id||'-'));
         tr.appendChild(ce('td','name',a.name));
         tr.appendChild(ce('td','mono',a.workspace));
         var tdS=ce('td','');var st=a.status||'';
@@ -341,9 +397,16 @@ function renderAudiences(c){
         tr.appendChild(ce('td','num',a.refresh_count||'-'));
         tr.appendChild(ce('td','mono',a.created?a.created.substring(0,10):''));
         tr.appendChild(ce('td','mono',a.last_refreshed||'-'));
+        var tdDel=ce('td','');
+        var btn=ce('button','del-btn'+(deleteSet[a.id]?' active':''),deleteSet[a.id]?'\u2715 Remove':'\u2715');
+        btn.onclick=(function(aud,row,b){return function(){toggleDelete(aud);row.className=deleteSet[aud.id]?'marked-delete':'';b.className='del-btn'+(deleteSet[aud.id]?' active':'');b.textContent=deleteSet[aud.id]?'\u2715 Remove':'\u2715'}})(a,tr,btn);
+        tdDel.appendChild(btn);tr.appendChild(tdDel);
         tbody.appendChild(tr);
       });
-      var cnt=c.querySelector('.cnt');if(cnt)cnt.textContent='Showing '+rows.length;
+      // Backfill names in deleteSet from loaded data
+      rows.forEach(function(a){if(deleteSet[a.id]){deleteSet[a.id].name=a.name;deleteSet[a.id].workspace=a.workspace}});
+      var cnt=c.querySelector('.cnt');if(cnt)cnt.textContent='Showing '+rows.length+(getDeleteCount()?' \u00B7 '+getDeleteCount()+' marked':'');
+      updateSaveBar();
     });
   }
   var timer;
@@ -399,8 +462,26 @@ function renderPixels(c){
   load();
 }
 
+// ── Save/Share deletion selections ──
+function saveSelections(){
+  saveDeleteState();
+  var cnt=getDeleteCount();
+  alert('Saved '+cnt+' audience'+(cnt===1?'':'s')+' marked for deletion.\n\nUse "Copy Link" to share or "Copy JSON" for the raw list.');
+}
+function copyDeletionList(){
+  var list=Object.values(deleteSet);
+  var json=JSON.stringify({marked_for_deletion:list,count:list.length,exported:new Date().toISOString()},null,2);
+  navigator.clipboard.writeText(json).then(function(){alert('Copied '+list.length+' audience deletion list to clipboard.')});
+}
+function copyShareLink(){
+  var ids=Object.keys(deleteSet);
+  if(!ids.length){alert('No audiences marked for deletion.');return}
+  var url=location.origin+location.pathname+'#delete='+encodeURIComponent(ids.join(','));
+  navigator.clipboard.writeText(url).then(function(){alert('Share link copied!\n\n'+ids.length+' audiences encoded in URL.')});
+}
+
 // ── Init ──
-fetchJson('overview.json').then(function(data){D=data;buildSidebar();render()}).catch(function(e){
+fetchJson('overview.json').then(function(data){D=data;buildSidebar();render();updateSaveBar()}).catch(function(e){
   $('content').appendChild(ce('div','coming-soon'));
   $('content').firstChild.appendChild(ce('h3','','Loading failed'));
   $('content').firstChild.appendChild(ce('p','','Check data/ directory or VPS connection.'));
