@@ -438,7 +438,7 @@ function renderAudiences(c){
   [['desc','DESC'],['asc','ASC']].forEach(function(o){var op=document.createElement('option');op.value=o[0];op.textContent=o[1];orderSel.appendChild(op)});
   controls.appendChild(orderSel);
   var idFilter=ce('select','');
-  [['all','All IDs'],['uuid','UUID only'],['name','Name-based only']].forEach(function(o){var op=document.createElement('option');op.value=o[0];op.textContent=o[1];idFilter.appendChild(op)});
+  [['all','All IDs'],['uuid','UUID only'],['name','Name-based only'],['marked','Marked for deletion']].forEach(function(o){var op=document.createElement('option');op.value=o[0];op.textContent=o[1];idFilter.appendChild(op)});
   controls.appendChild(idFilter);
 
   // Select controls
@@ -485,6 +485,7 @@ function renderAudiences(c){
       var idf=idFilter.value;
       if(idf==='uuid')rows=rows.filter(function(a){return isRealId(a.id)});
       else if(idf==='name')rows=rows.filter(function(a){return !isRealId(a.id)});
+      else if(idf==='marked')rows=rows.filter(function(a){return !!deleteSet[a.id]});
       var col=sortSel.value;var ord=orderSel.value;
       rows.sort(function(a,b){var av=a[col]||'',bv=b[col]||'';if(typeof av==='number'||col==='audience_size')return ord==='desc'?(bv||0)-(av||0):(av||0)-(bv||0);return ord==='desc'?String(bv).localeCompare(String(av)):String(av).localeCompare(String(bv))});
       currentRows=rows;
@@ -531,7 +532,11 @@ function renderAudiences(c){
         tdDel.appendChild(btn);tr.appendChild(tdDel);
         tbody.appendChild(tr);
       });
-      // Backfill names in deleteSet from loaded data
+      // Backfill names and prune orphan IDs that don't exist in actual data
+      var allIds={};(data.audiences||[]).forEach(function(a){allIds[a.id]=true});
+      var pruned=false;
+      Object.keys(deleteSet).forEach(function(id){if(!allIds[id]){delete deleteSet[id];pruned=true}});
+      if(pruned){saveDeleteState()}
       rows.forEach(function(a){if(deleteSet[a.id]){deleteSet[a.id].name=a.name;deleteSet[a.id].workspace=a.workspace}});
       var cnt=c.querySelector('.cnt');if(cnt)cnt.textContent='Showing '+rows.length+(getDeleteCount()?' \u00B7 '+getDeleteCount()+' marked':'')+(getSelectCount()?' \u00B7 '+getSelectCount()+' selected':'');
       updateSaveBar();
