@@ -89,7 +89,7 @@ tr.marked-delete td.name{text-decoration:line-through}
 .del-btn{background:none;border:1px solid var(--border);border-radius:4px;cursor:pointer;font-size:.72rem;padding:.2rem .45rem;color:var(--muted);transition:all .12s}
 .del-btn:hover{border-color:var(--red);color:var(--red)}
 .del-btn.active{background:var(--red-bg);border-color:var(--red);color:var(--red);font-weight:600}
-.save-bar{position:fixed;top:.5rem;right:1rem;z-index:100;display:flex;gap:.4rem;align-items:center;flex-wrap:wrap;justify-content:flex-end;max-width:calc(100% - var(--sidebar-w) - 2rem)}
+.save-bar{position:sticky;top:42px;z-index:8;display:flex;gap:.4rem;align-items:center;flex-wrap:wrap;padding:.6rem .9rem;margin-bottom:.7rem;background:var(--s1);border:2px solid var(--red);border-radius:8px;box-shadow:0 2px 12px rgba(220,38,38,.12)}
 .save-bar .save-btn{background:var(--red);color:#fff;border:none;border-radius:6px;padding:.5rem 1rem;font-size:.78rem;font-weight:600;cursor:pointer;font-family:var(--sans);box-shadow:0 2px 8px rgba(220,38,38,.25)}
 .save-bar .save-btn:hover{background:#b91c1c}
 .save-bar .save-btn.clean{background:var(--green);box-shadow:0 2px 8px rgba(22,163,74,.25)}
@@ -130,15 +130,6 @@ tr.marked-delete.row-selected{background:var(--red-bg) !important}
 </style>
 </head><body>
 
-<div class="save-bar" id="save-bar" style="display:none">
-  <span class="counter" id="bar-counter">0 marked for deletion</span>
-  <span class="counter" id="bar-selected" style="color:var(--blue)"></span>
-  <button class="save-btn" onclick="saveSelections()">Save &amp; Deploy</button>
-  <button class="copy-btn" onclick="copySelectedIds()">Copy Selected IDs</button>
-  <button class="copy-btn" onclick="downloadSelectedIds()">Download IDs</button>
-  <button class="copy-btn" onclick="copyDeletionList()">Copy JSON</button>
-  <button class="copy-btn" onclick="copyShareLink()">Copy Link</button>
-</div>
 <div class="sidebar" id="sidebar"></div>
 <div class="main">
   <div class="topbar">
@@ -228,20 +219,28 @@ function updateSaveBar(){
   if(!bar)return;
   var delCnt=getDeleteCount();
   var selCnt=getSelectCount();
-  // Show bar if anything is marked, selected, or there are unsaved changes
-  bar.style.display=(delCnt>0||selCnt>0||dirty)?'flex':'none';
+  // Always show the bar on audiences page - style changes based on state
+  bar.style.borderColor=delCnt>0?'var(--red)':'var(--border)';
+  bar.style.boxShadow=delCnt>0?'0 2px 12px rgba(220,38,38,.12)':'none';
   var counter=document.getElementById('bar-counter');
   if(counter){
-    counter.textContent=delCnt+' marked for deletion';
-    if(dirty)counter.textContent+=' (unsaved)';
+    if(delCnt>0){
+      counter.textContent=delCnt+' marked for deletion';
+      counter.style.color='var(--red)';
+      if(dirty)counter.textContent+=' \u2022 unsaved changes';
+    } else {
+      counter.textContent='No audiences marked for deletion';
+      counter.style.color='var(--muted)';
+    }
   }
   var selSpan=document.getElementById('bar-selected');
-  if(selSpan)selSpan.textContent=selCnt>0?selCnt+' selected':'';
+  if(selSpan)selSpan.textContent=selCnt>0?'\u2022 '+selCnt+' selected':'';
   // Style save button based on dirty state
   var saveBtn=bar.querySelector('.save-btn');
   if(saveBtn){
-    if(dirty){saveBtn.classList.remove('clean');saveBtn.textContent='Save & Deploy'}
-    else{saveBtn.classList.add('clean');saveBtn.textContent='Saved'}
+    if(dirty){saveBtn.classList.remove('clean');saveBtn.textContent='Save & Deploy';saveBtn.disabled=false}
+    else if(delCnt>0){saveBtn.classList.add('clean');saveBtn.textContent='Saved';saveBtn.disabled=false}
+    else{saveBtn.classList.remove('clean');saveBtn.textContent='Save & Deploy';saveBtn.disabled=true}
   }
 }
 loadDeleteState();
@@ -452,6 +451,19 @@ function renderAudiences(c){
   controls.appendChild(ce('div','cnt',''));
   c.appendChild(controls);
 
+  // Action bar — always present on audiences page
+  var bar=ce('div','save-bar');bar.id='save-bar';
+  var barCounter=ce('span','counter');barCounter.id='bar-counter';barCounter.textContent='0 marked for deletion';bar.appendChild(barCounter);
+  var barSelected=ce('span','counter');barSelected.id='bar-selected';barSelected.style.color='var(--blue)';bar.appendChild(barSelected);
+  var spacer=ce('div','');spacer.style.cssText='flex:1';bar.appendChild(spacer);
+  var saveBtn=ce('button','save-btn');saveBtn.textContent='Save & Deploy';saveBtn.onclick=saveSelections;bar.appendChild(saveBtn);
+  var copyIdsBtn=ce('button','copy-btn');copyIdsBtn.textContent='Copy Selected IDs';copyIdsBtn.onclick=copySelectedIds;bar.appendChild(copyIdsBtn);
+  var dlBtn=ce('button','copy-btn');dlBtn.textContent='Download IDs';dlBtn.onclick=downloadSelectedIds;bar.appendChild(dlBtn);
+  var copyJsonBtn=ce('button','copy-btn');copyJsonBtn.textContent='Copy JSON';copyJsonBtn.onclick=copyDeletionList;bar.appendChild(copyJsonBtn);
+  var copyLinkBtn=ce('button','copy-btn');copyLinkBtn.textContent='Copy Link';copyLinkBtn.onclick=copyShareLink;bar.appendChild(copyLinkBtn);
+  c.appendChild(bar);
+  updateSaveBar();
+
   var wrap=ce('div','tbl-wrap');
   var tbl=ce('table','');tbl.style.tableLayout='auto';var thead=ce('thead','');var hr=ce('tr','');
   // Select-all checkbox header
@@ -603,7 +615,7 @@ function saveSelections(){
   }).catch(function(e){
     alert('Could not reach save endpoint.\nSelections saved locally only.\n\n'+e);
   }).finally(function(){
-    if(btn){btn.textContent='Save Selections';btn.disabled=false}
+    updateSaveBar();
   });
 }
 function buildSelectedExport(){
