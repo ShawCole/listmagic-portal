@@ -97,7 +97,10 @@ tr.marked-delete td.name{text-decoration:line-through}
 .save-bar .copy-btn{background:var(--s1);color:var(--text);border:1px solid var(--border);border-radius:6px;padding:.5rem .8rem;font-size:.78rem;cursor:pointer;font-family:var(--sans)}
 .save-bar .copy-btn:hover{border-color:var(--blue);color:var(--blue)}
 .save-bar .counter{font-family:var(--mono);font-size:.72rem;color:var(--red);font-weight:600}
-td.id-col{font-family:var(--mono);font-size:.6rem;color:var(--muted);white-space:normal;word-break:break-all;min-width:220px;max-width:350px}
+td.id-col{font-family:var(--mono);font-size:.6rem;color:var(--muted);white-space:normal;word-break:break-all;min-width:260px;max-width:400px}
+.id-badge{display:inline-block;font-size:.5rem;padding:.08rem .3rem;border-radius:3px;font-weight:700;margin-right:.3rem;vertical-align:middle}
+.id-badge.real{background:var(--green-bg);color:var(--green)}
+.id-badge.generated{background:var(--amber-bg);color:var(--amber)}
 
 /* ── Select checkboxes ── */
 td.sel-col,th.sel-col{width:28px;min-width:28px;max-width:28px;text-align:center;padding:.45rem .3rem}
@@ -246,6 +249,7 @@ loadDeleteState();
 function $(id){return document.getElementById(id)}
 function ce(t,c,txt){var e=document.createElement(t);if(c)e.className=c;if(txt!==undefined)e.textContent=String(txt);return e}
 function fmt(n){return n?Number(n).toLocaleString():'-'}
+function isRealId(id){return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/.test(id)}
 
 function fetchJson(file){return fetch('data/'+file).then(function(r){return r.json()})}
 
@@ -434,6 +438,9 @@ function renderAudiences(c){
   var orderSel=ce('select','');
   [['desc','DESC'],['asc','ASC']].forEach(function(o){var op=document.createElement('option');op.value=o[0];op.textContent=o[1];orderSel.appendChild(op)});
   controls.appendChild(orderSel);
+  var idFilter=ce('select','');
+  [['all','All IDs'],['uuid','UUID only'],['name','Name-based only']].forEach(function(o){var op=document.createElement('option');op.value=o[0];op.textContent=o[1];idFilter.appendChild(op)});
+  controls.appendChild(idFilter);
 
   // Select controls
   var selGroup=ce('div','');selGroup.style.cssText='display:flex;gap:.3rem;margin-left:.5rem';
@@ -463,6 +470,9 @@ function renderAudiences(c){
       if(ws)rows=rows.filter(function(a){return a.workspace===ws});
       var q=search.value.toLowerCase();
       if(q)rows=rows.filter(function(a){return a.name.toLowerCase().includes(q)});
+      var idf=idFilter.value;
+      if(idf==='uuid')rows=rows.filter(function(a){return isRealId(a.id)});
+      else if(idf==='name')rows=rows.filter(function(a){return !isRealId(a.id)});
       var col=sortSel.value;var ord=orderSel.value;
       rows.sort(function(a,b){var av=a[col]||'',bv=b[col]||'';if(typeof av==='number'||col==='audience_size')return ord==='desc'?(bv||0)-(av||0):(av||0)-(bv||0);return ord==='desc'?String(bv).localeCompare(String(av)):String(av).localeCompare(String(bv))});
       currentRows=rows;
@@ -484,7 +494,12 @@ function renderAudiences(c){
         }})(a,tr,cb);
         tdSel.appendChild(cb);tr.appendChild(tdSel);
 
-        tr.appendChild(ce('td','id-col',a.id||'-'));
+        var tdId=ce('td','id-col');
+        var real=isRealId(a.id);
+        var badge=ce('span','id-badge '+(real?'real':'generated'),real?'UUID':'NAME');
+        tdId.appendChild(badge);
+        tdId.appendChild(document.createTextNode(a.id||'-'));
+        tr.appendChild(tdId);
         tr.appendChild(ce('td','name',a.name));
         tr.appendChild(ce('td','mono',a.workspace));
         var tdS=ce('td','');var st=a.status||'';
@@ -514,6 +529,7 @@ function renderAudiences(c){
   search.addEventListener('input',function(){clearTimeout(timer);timer=setTimeout(load,300)});
   sortSel.addEventListener('change',load);
   orderSel.addEventListener('change',load);
+  idFilter.addEventListener('change',load);
   load();
 }
 
@@ -590,19 +606,56 @@ function saveSelections(){
     if(btn){btn.textContent='Save Selections';btn.disabled=false}
   });
 }
-function copySelectedIds(){
+function buildSelectedExport(){
   var ids=getSelectedIds();
-  if(!ids.length){alert('No audiences selected. Use checkboxes or "Select All" / "Select Marked" first.');return}
-  var csv=ids.join(',');
-  navigator.clipboard.writeText(csv).then(function(){alert('Copied '+ids.length+' audience IDs to clipboard (comma-separated).')});
+  if(!ids.length)return null;
+  var realIds=[],genEntries=[];
+  ids.forEach(function(id){
+    if(isRealId(id)){realIds.push(id)}
+    else{
+      var info=deleteSet[id];
+      var name=info?info.name:'';var ws=info?info.workspace:'';
+      // Try to find in currentRows for better data
+      for(var i=0;i<currentRows.length;i++){if(currentRows[i].id===id){name=currentRows[i].name;ws=currentRows[i].workspace;break}}
+      genEntries.push({id:id,name:name,workspace:ws});
+    }
+  });
+  return{realIds:realIds,genEntries:genEntries,total:ids.length};
+}
+function copySelectedIds(){
+  var exp=buildSelectedExport();
+  if(!exp){alert('No audiences selected. Use checkboxes or "Select All" / "Select Marked" first.');return}
+  var lines=[];
+  if(exp.realIds.length)lines.push('# Real UUIDs ('+exp.realIds.length+')\n'+exp.realIds.join(','));
+  if(exp.genEntries.length){
+    lines.push('\n# Name-based IDs — need manual lookup ('+exp.genEntries.length+')');
+    exp.genEntries.forEach(function(e){lines.push(e.workspace+' | '+e.name+' | '+e.id)});
+  }
+  var text=lines.join('\n');
+  navigator.clipboard.writeText(text).then(function(){
+    var msg='Copied '+exp.total+' audience IDs.';
+    if(exp.genEntries.length)msg+='\n\nNote: '+exp.genEntries.length+' have name-based IDs (marked NAME) that need manual lookup in AudienceLab.';
+    alert(msg);
+  });
 }
 function downloadSelectedIds(){
-  var ids=getSelectedIds();
-  if(!ids.length){alert('No audiences selected. Use checkboxes or "Select All" / "Select Marked" first.');return}
-  var csv=ids.join(',');
-  var blob=new Blob([csv],{type:'text/plain'});
+  var exp=buildSelectedExport();
+  if(!exp){alert('No audiences selected. Use checkboxes or "Select All" / "Select Marked" first.');return}
+  var lines=['# ListMagic Audience Selection Export','# Generated: '+new Date().toISOString(),''];
+  if(exp.realIds.length){
+    lines.push('## Real UUIDs ('+exp.realIds.length+') — ready for API deletion');
+    lines.push(exp.realIds.join(','));
+    lines.push('');
+  }
+  if(exp.genEntries.length){
+    lines.push('## Name-based IDs ('+exp.genEntries.length+') — need manual lookup');
+    lines.push('workspace | name | generated_id');
+    exp.genEntries.forEach(function(e){lines.push(e.workspace+' | '+e.name+' | '+e.id)});
+  }
+  var text=lines.join('\n');
+  var blob=new Blob([text],{type:'text/plain'});
   var url=URL.createObjectURL(blob);
-  var a=document.createElement('a');a.href=url;a.download='selected-audience-ids.txt';
+  var a=document.createElement('a');a.href=url;a.download='audience-selection-'+new Date().toISOString().substring(0,10)+'.txt';
   document.body.appendChild(a);a.click();document.body.removeChild(a);URL.revokeObjectURL(url);
 }
 function copyDeletionList(){
