@@ -104,9 +104,7 @@ td.id-col{font-family:var(--mono);font-size:.6rem;color:var(--muted);white-space
 
 /* ── Select checkboxes ── */
 td.sel-col,th.sel-col{width:28px;min-width:28px;max-width:28px;text-align:center;padding:.45rem .3rem}
-td.sel-col input,th.sel-col input{cursor:pointer;width:14px;height:14px;accent-color:var(--blue)}
-tr.row-selected{background:var(--blue-bg) !important}
-tr.marked-delete.row-selected{background:var(--red-bg) !important}
+td.sel-col input,th.sel-col input{cursor:pointer;width:14px;height:14px;accent-color:var(--red)}
 
 /* ── Tenant grid ── */
 .tenant-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(240px,1fr));gap:.6rem}
@@ -143,8 +141,7 @@ tr.marked-delete.row-selected{background:var(--red-bg) !important}
 var D = null;
 var page = 'dashboard';
 var tenant = ''; // workspace slug filter
-var deleteSet = {}; // {audienceId: {id, name, workspace}}
-var selectSet = {}; // {audienceId: true} — row selection for copy/download
+var deleteSet = {}; // {audienceId: {id, name, workspace}} — checked = marked for deletion
 var serverDeleteSet = '{}'; // JSON snapshot of last saved state
 var dirty = false; // true if local deleteSet differs from server
 var currentRows = []; // currently displayed audience rows for select-all
@@ -188,44 +185,30 @@ function toggleDelete(a){
   else deleteSet[a.id]={id:a.id,name:a.name,workspace:a.workspace};
   saveDeleteState();
 }
-function toggleSelect(id){
-  if(selectSet[id])delete selectSet[id];
-  else selectSet[id]=true;
-  updateSaveBar();
-}
 function getDeleteCount(){return Object.keys(deleteSet).length}
-function getSelectCount(){return Object.keys(selectSet).length}
-function selectAll(){
-  currentRows.forEach(function(a){selectSet[a.id]=true});
+function markAll(){
+  currentRows.forEach(function(a){if(!deleteSet[a.id])deleteSet[a.id]={id:a.id,name:a.name,workspace:a.workspace}});
+  saveDeleteState();
   if(page==='audiences')render();
-  updateSaveBar();
 }
-function selectNone(){
-  selectSet={};
+function unmarkAll(){
+  deleteSet={};
+  saveDeleteState();
   if(page==='audiences')render();
-  updateSaveBar();
-}
-function selectMarked(){
-  selectSet={};
-  Object.keys(deleteSet).forEach(function(id){selectSet[id]=true});
-  if(page==='audiences')render();
-  updateSaveBar();
 }
 function getSelectedIds(){
-  return Object.keys(selectSet);
+  return Object.keys(deleteSet);
 }
 function updateSaveBar(){
   var bar=document.getElementById('save-bar');
   if(!bar)return;
-  var delCnt=getDeleteCount();
-  var selCnt=getSelectCount();
-  // Always show the bar on audiences page - style changes based on state
-  bar.style.borderColor=delCnt>0?'var(--red)':'var(--border)';
-  bar.style.boxShadow=delCnt>0?'0 2px 12px rgba(220,38,38,.12)':'none';
+  var cnt=getDeleteCount();
+  bar.style.borderColor=cnt>0?'var(--red)':'var(--border)';
+  bar.style.boxShadow=cnt>0?'0 2px 12px rgba(220,38,38,.12)':'none';
   var counter=document.getElementById('bar-counter');
   if(counter){
-    if(delCnt>0){
-      counter.textContent=delCnt+' marked for deletion';
+    if(cnt>0){
+      counter.textContent=cnt+' marked for deletion';
       counter.style.color='var(--red)';
       if(dirty)counter.textContent+=' \u2022 unsaved changes';
     } else {
@@ -233,14 +216,11 @@ function updateSaveBar(){
       counter.style.color='var(--muted)';
     }
   }
-  var selSpan=document.getElementById('bar-selected');
-  if(selSpan)selSpan.textContent=selCnt>0?'\u2022 '+selCnt+' selected':'';
-  // Style save button based on dirty state
   var saveBtn=bar.querySelector('.save-btn');
   if(saveBtn){
     saveBtn.disabled=false;
     if(dirty){saveBtn.classList.remove('clean');saveBtn.textContent='Save & Deploy'}
-    else if(delCnt>0){saveBtn.classList.add('clean');saveBtn.textContent='Saved'}
+    else if(cnt>0){saveBtn.classList.add('clean');saveBtn.textContent='Saved'}
     else{saveBtn.classList.remove('clean');saveBtn.textContent='Save & Deploy'}
   }
 }
@@ -442,11 +422,10 @@ function renderAudiences(c){
   [['all','All IDs'],['uuid','UUID only'],['name','Name-based only'],['marked','Marked for deletion']].forEach(function(o){var op=document.createElement('option');op.value=o[0];op.textContent=o[1];idFilter.appendChild(op)});
   controls.appendChild(idFilter);
 
-  // Select controls
+  // Bulk mark controls
   var selGroup=ce('div','');selGroup.style.cssText='display:flex;gap:.3rem;margin-left:.5rem';
-  var btnAll=ce('button','copy-btn');btnAll.textContent='Select All';btnAll.style.cssText='font-size:.68rem;padding:.25rem .5rem';btnAll.onclick=selectAll;selGroup.appendChild(btnAll);
-  var btnNone=ce('button','copy-btn');btnNone.textContent='Select None';btnNone.style.cssText='font-size:.68rem;padding:.25rem .5rem';btnNone.onclick=selectNone;selGroup.appendChild(btnNone);
-  var btnMarked=ce('button','copy-btn');btnMarked.textContent='Select Marked';btnMarked.style.cssText='font-size:.68rem;padding:.25rem .5rem;color:var(--red)';btnMarked.onclick=selectMarked;selGroup.appendChild(btnMarked);
+  var btnAll=ce('button','copy-btn');btnAll.textContent='Mark All Visible';btnAll.style.cssText='font-size:.68rem;padding:.25rem .5rem;color:var(--red)';btnAll.onclick=markAll;selGroup.appendChild(btnAll);
+  var btnNone=ce('button','copy-btn');btnNone.textContent='Unmark All';btnNone.style.cssText='font-size:.68rem;padding:.25rem .5rem';btnNone.onclick=unmarkAll;selGroup.appendChild(btnNone);
   controls.appendChild(selGroup);
 
   controls.appendChild(ce('div','cnt',''));
@@ -455,10 +434,9 @@ function renderAudiences(c){
   // Action bar — always present on audiences page
   var bar=ce('div','save-bar');bar.id='save-bar';
   var barCounter=ce('span','counter');barCounter.id='bar-counter';barCounter.textContent='0 marked for deletion';bar.appendChild(barCounter);
-  var barSelected=ce('span','counter');barSelected.id='bar-selected';barSelected.style.color='var(--blue)';bar.appendChild(barSelected);
   var spacer=ce('div','');spacer.style.cssText='flex:1';bar.appendChild(spacer);
   var saveBtn=ce('button','save-btn');saveBtn.textContent='Save & Deploy';saveBtn.onclick=saveSelections;bar.appendChild(saveBtn);
-  var copyIdsBtn=ce('button','copy-btn');copyIdsBtn.textContent='Copy Selected IDs';copyIdsBtn.onclick=copySelectedIds;bar.appendChild(copyIdsBtn);
+  var copyIdsBtn=ce('button','copy-btn');copyIdsBtn.textContent='Copy Marked IDs';copyIdsBtn.onclick=copySelectedIds;bar.appendChild(copyIdsBtn);
   var dlBtn=ce('button','copy-btn');dlBtn.textContent='Download IDs';dlBtn.onclick=downloadSelectedIds;bar.appendChild(dlBtn);
   var copyJsonBtn=ce('button','copy-btn');copyJsonBtn.textContent='Copy JSON';copyJsonBtn.onclick=copyDeletionList;bar.appendChild(copyJsonBtn);
   var copyLinkBtn=ce('button','copy-btn');copyLinkBtn.textContent='Copy Link';copyLinkBtn.onclick=copyShareLink;bar.appendChild(copyLinkBtn);
@@ -469,10 +447,10 @@ function renderAudiences(c){
   var tbl=ce('table','');tbl.style.tableLayout='auto';var thead=ce('thead','');var hr=ce('tr','');
   // Select-all checkbox header
   var thSel=ce('th','sel-col');
-  var selAllCb=document.createElement('input');selAllCb.type='checkbox';selAllCb.title='Select all visible';
-  selAllCb.onchange=function(){if(selAllCb.checked)selectAll();else selectNone()};
+  var selAllCb=document.createElement('input');selAllCb.type='checkbox';selAllCb.title='Mark all visible for deletion';
+  selAllCb.onchange=function(){if(selAllCb.checked)markAll();else unmarkAll()};
   thSel.appendChild(selAllCb);hr.appendChild(thSel);
-  ['ID','Name','Tenant','Status','Size','Refreshes','Created','Last Refreshed','Delete'].forEach(function(h){hr.appendChild(ce('th','',h))});
+  ['ID','Name','Tenant','Status','Size','Refreshes','Created','Last Refreshed'].forEach(function(h){hr.appendChild(ce('th','',h))});
   thead.appendChild(hr);tbl.appendChild(thead);
   var tbody=ce('tbody','');tbl.appendChild(tbody);wrap.appendChild(tbl);c.appendChild(wrap);
 
@@ -494,17 +472,15 @@ function renderAudiences(c){
       while(tbody.firstChild)tbody.removeChild(tbody.firstChild);
       rows.forEach(function(a){
         var tr=ce('tr','');
-        var cls=[];
-        if(deleteSet[a.id])cls.push('marked-delete');
-        if(selectSet[a.id])cls.push('row-selected');
-        tr.className=cls.join(' ');
+        if(deleteSet[a.id])tr.className='marked-delete';
 
-        // Select checkbox
+        // Checkbox = mark for deletion
         var tdSel=ce('td','sel-col');
-        var cb=document.createElement('input');cb.type='checkbox';cb.checked=!!selectSet[a.id];
+        var cb=document.createElement('input');cb.type='checkbox';cb.checked=!!deleteSet[a.id];
         cb.onchange=(function(aud,row,checkbox){return function(){
-          toggleSelect(aud.id);
-          if(selectSet[aud.id])row.classList.add('row-selected');else row.classList.remove('row-selected');
+          toggleDelete(aud);
+          if(deleteSet[aud.id])row.classList.add('marked-delete');else row.classList.remove('marked-delete');
+          checkbox.checked=!!deleteSet[aud.id];
         }})(a,tr,cb);
         tdSel.appendChild(cb);tr.appendChild(tdSel);
 
@@ -523,14 +499,6 @@ function renderAudiences(c){
         tr.appendChild(ce('td','num',a.refresh_count||'-'));
         tr.appendChild(ce('td','mono',a.created?a.created.substring(0,10):''));
         tr.appendChild(ce('td','mono',a.last_refreshed||'-'));
-        var tdDel=ce('td','');
-        var btn=ce('button','del-btn'+(deleteSet[a.id]?' active':''),deleteSet[a.id]?'\u2715 Undo':'\u2715');
-        btn.onclick=(function(aud,row,b){return function(){
-          toggleDelete(aud);
-          if(deleteSet[aud.id]){row.classList.add('marked-delete');b.className='del-btn active';b.textContent='\u2715 Undo'}
-          else{row.classList.remove('marked-delete');b.className='del-btn';b.textContent='\u2715'}
-        }})(a,tr,btn);
-        tdDel.appendChild(btn);tr.appendChild(tdDel);
         tbody.appendChild(tr);
       });
       // Backfill names and prune orphan IDs that don't exist in actual data
@@ -539,7 +507,7 @@ function renderAudiences(c){
       Object.keys(deleteSet).forEach(function(id){if(!allIds[id]){delete deleteSet[id];pruned=true}});
       if(pruned){saveDeleteState()}
       rows.forEach(function(a){if(deleteSet[a.id]){deleteSet[a.id].name=a.name;deleteSet[a.id].workspace=a.workspace}});
-      var cnt=c.querySelector('.cnt');if(cnt)cnt.textContent='Showing '+rows.length+(getDeleteCount()?' \u00B7 '+getDeleteCount()+' marked':'')+(getSelectCount()?' \u00B7 '+getSelectCount()+' selected':'');
+      var cnt=c.querySelector('.cnt');if(cnt)cnt.textContent='Showing '+rows.length+(getDeleteCount()?' \u00B7 '+getDeleteCount()+' marked for deletion':'');
       updateSaveBar();
     });
   }
@@ -642,7 +610,7 @@ function buildSelectedExport(){
 }
 function copySelectedIds(){
   var exp=buildSelectedExport();
-  if(!exp){alert('No audiences selected. Use checkboxes or "Select All" / "Select Marked" first.');return}
+  if(!exp){alert('No audiences marked for deletion. Check the boxes next to audiences you want to delete first.');return}
   var lines=[];
   if(exp.realIds.length)lines.push('# Real UUIDs ('+exp.realIds.length+')\n'+exp.realIds.join(','));
   if(exp.genEntries.length){
@@ -658,7 +626,7 @@ function copySelectedIds(){
 }
 function downloadSelectedIds(){
   var exp=buildSelectedExport();
-  if(!exp){alert('No audiences selected. Use checkboxes or "Select All" / "Select Marked" first.');return}
+  if(!exp){alert('No audiences marked for deletion. Check the boxes next to audiences you want to delete first.');return}
   var lines=['# ListMagic Audience Selection Export','# Generated: '+new Date().toISOString(),''];
   if(exp.realIds.length){
     lines.push('## Real UUIDs ('+exp.realIds.length+') — ready for API deletion');
